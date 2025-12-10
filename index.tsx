@@ -1,5 +1,5 @@
 // FIX: Removed unused `LiveServerMessage` and `Blob` imports from `@google/genai` which are for the Live API and not used here.
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, Chat, Type } from "@google/genai";
 
 // --- TYPE DEFINITIONS ---
 interface BadgeState {
@@ -20,6 +20,13 @@ interface Question {
     userAnswer?: string | null;
 }
 
+interface ComicPanel {
+    panel_number: number;
+    visual_description: string;
+    caption: string;
+    imageBase64: string | null;
+}
+
 interface GameState {
     targetScore: string | null;
     points: number;
@@ -33,6 +40,7 @@ interface GameState {
     };
     wrongAnswers: Question[];
     completedPlanDays: number[];
+    generatedComics: Record<string, ComicPanel[]>; // Cache for comics
 }
 
 interface Quiz {
@@ -52,12 +60,20 @@ interface LearningContent {
     // Add other fields from your JSON structure
 }
 
+// Updated SmartMemo Interface: Detailed List
+interface SmartMemo {
+    topic: string;
+    concept: string; 
+    checkpoints: { title: string; detail: string }[]; // Structured points
+    trap: string; 
+}
+
 // --- ICONS ---
 const ICONS = {
     points: `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v.01M12 6v-1h4a2 2 0 012 2v10a2 2 0 01-2 2H8a2 2 0 01-2-2V7a2 2 0 012-2h4z" /></svg>`,
     streak: `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.657 7.343A8 8 0 0117.657 18.657z" /><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z" /></svg>`,
     grammarMaster: `<svg xmlns="http://www.w3.org/2000/svg" class="w-full h-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M12 14l9-5-9-5-9 5 9 5z" /><path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" /><path stroke-linecap="round" stroke-linejoin="round" d="M12 14l9-5-9-5-9 5 9 5zm0 0v6" /></svg>`,
-    wordNinja: `<svg xmlns="http://www.w3.org/2000/svg" class="w-full h-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2.25l.24.03.23.06.24.09.22.12.23.15.21.17.22.2.2.21.15.23.12.22.09.24.06.23.03.24V6l-.03.24-.06.23-.09.24-.12.22-.15.23-.17.21-.2.22-.21.2-.23.15-.22.12-.24.09-.23.06-.24.03L12 9l-.24-.03-.23-.06-.24-.09-.22-.12-.23-.15-.21-.17-.22-.2-.2-.21-.15-.23-.12-.22-.09-.24-.06-.23L6 6l.03-.24.06-.23.09-.24.12-.22.15-.23.17-.21.2-.22.21-.2.23-.15.22-.12.24-.09.23-.06.24-.03L12 2.25zM12 2.25l-.24.03-.23.06-.24.09-.22.12-.23-.15-.21-.17-.22.2-.2.21L6 6v12l6-3.6 6 3.6V6l-5.75-3.45z" /><circle cx="12" cy="12" r="2.25" /></svg>`,
+    wordNinja: `<svg xmlns="http://www.w3.org/2000/svg" class="w-full h-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2.25l.24.03.23.06.24.09.22.12.23.15.21.17.22.2.2.21.15.23.12.22.09.24.06.23.03.24V6l-.03.24-.06.23-.09.24-.12.22-.15.23-.17.21-.2.22-.21.2-.23.15-.22.12-.24.09-.23.06-.24.03L12 9l-.24-.03-.23-.06-.24-.09-.22-.12-.23-.15-.21-.17-.22-.2-.2.21-.15-.23-.12-.22-.09-.24-.06-.23L6 6l.03-.24.06-.23.09-.24.12-.22.15-.23.17-.21.2-.22.21-.2.23-.15.22-.12.24-.09.23-.06.24-.03L12 2.25zM12 2.25l-.24.03-.23.06-.24.09-.22.12-.23-.15-.21-.17-.22.2-.2.21L6 6v12l6-3.6 6 3.6V6l-5.75-3.45z" /><circle cx="12" cy="12" r="2.25" /></svg>`,
     aiTutor: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M12 6V5m0 14v-1M5.636 5.636l-.707-.707M19.071 19.071l-.707-.707M18.364 5.636l.707-.707M4.929 19.071l.707-.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>`,
     playAudio: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>`,
     target: `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-lime-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>`,
@@ -65,11 +81,47 @@ const ICONS = {
     cross: `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>`,
     lightbulb: `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 017.072 0l-.707.707M12 21V11a5 5 0 0110 0v5a5 5 0 01-10 0z" /></svg>`,
     practice: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>`,
-    remove: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>`
+    remove: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>`,
+    memo: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`,
+    comic: `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`
 };
 
 // --- GEMINI SETUP ---
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// --- HELPER FUNCTIONS ---
+function cleanAndParseJSON(str: string): any {
+    try {
+        // First try standard parse
+        return JSON.parse(str);
+    } catch (e) {
+        // Cleaning: Remove markdown code blocks and whitespace
+        let cleaned = str.replace(/```json/g, '').replace(/```/g, '').trim();
+        // Sometimes models add explanatory text at start or end, try to find the JSON object/array
+        const firstOpenBrace = cleaned.indexOf('{');
+        const firstOpenBracket = cleaned.indexOf('[');
+        const lastCloseBrace = cleaned.lastIndexOf('}');
+        const lastCloseBracket = cleaned.lastIndexOf(']');
+        
+        let start = -1; 
+        let end = -1;
+
+        if (firstOpenBrace !== -1 && (firstOpenBracket === -1 || firstOpenBrace < firstOpenBracket)) {
+            start = firstOpenBrace;
+            end = lastCloseBrace;
+        } else if (firstOpenBracket !== -1) {
+            start = firstOpenBracket;
+            end = lastCloseBracket;
+        }
+
+        if (start !== -1 && end !== -1) {
+            cleaned = cleaned.substring(start, end + 1);
+        }
+
+        return JSON.parse(cleaned);
+    }
+}
+
 
 // --- APP INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -100,12 +152,19 @@ document.addEventListener('DOMContentLoaded', () => {
         practiceArea: document.getElementById('ai-practice-area'),
         closeBtn: document.getElementById('close-ai-modal-btn'),
     };
+    const memoModal = {
+        container: document.getElementById('smart-memo-modal'),
+        content: document.getElementById('memo-content'),
+        closeBtn: document.getElementById('close-memo-btn'),
+    };
+    
 
     // --- STATE MANAGEMENT ---
     let gameState: GameState;
     let currentQuiz: Quiz = { name: '', questions: [], type: 'weekly' };
     let timerInterval: number | null = null;
     let currentLearningDay: number | null = null;
+    let currentTopic: string = ''; // Track active topic
     let outputAudioContext: AudioContext | null = null;
     let preloadedAudioBuffers = new Map<string, AudioBuffer>();
     let currentScreenId: string = '';
@@ -127,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         wrongAnswers: [],
         completedPlanDays: [],
+        generatedComics: {},
     };
 
     function saveState() {
@@ -149,6 +209,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!(badgeKey in state.badges)) {
                  state.badges[badgeKey] = defaultState.badges[badgeKey];
             }
+        }
+        if (!state.generatedComics) {
+            state.generatedComics = {};
         }
         
         gameState = state as GameState;
@@ -532,7 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card.className = `${baseCardClasses} ${isCompleted ? completedClasses : (isQuiz ? quizClasses : studyClasses)}`;
             card.style.setProperty('--glow-color', isQuiz ? 'rgba(217, 70, 239, 0.4)' : 'rgba(163, 230, 53, 0.4)');
             
-            const baseButtonClasses = "plan-action-btn mt-4 w-full text-white font-semibold py-2 px-4 rounded-lg transition-transform transform active:scale-[0.98] flex items-center justify-center gap-2";
+            const baseButtonClasses = "plan-action-btn flex-1 text-white font-semibold py-2 px-3 rounded-lg transition-transform transform active:scale-[0.98] flex items-center justify-center gap-2 text-sm";
             let buttonContent = '';
             let buttonClasses = '';
 
@@ -543,23 +606,133 @@ document.addEventListener('DOMContentLoaded', () => {
                 buttonContent = isQuiz ? '開始測驗' : '開始學習';
                 buttonClasses = isQuiz ? 'bg-fuchsia-600 hover:bg-fuchsia-500' : 'bg-lime-700 hover:bg-lime-600';
             }
+            
+            // Add Smart Memo button for Study days
+            let smartMemoBtn = '';
+            if (!isQuiz) {
+                smartMemoBtn = `
+                    <button 
+                        data-topic="${item.topic}"
+                        data-prompt="${item.promptTopic}"
+                        class="smart-memo-btn bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 px-3 rounded-lg transition flex items-center justify-center gap-1 shadow-lg" title="重點速記">
+                        ${ICONS.memo}
+                    </button>
+                `;
+            }
 
             card.innerHTML = `
                 <div>
                     <p class="font-bold text-sm text-slate-400">第 ${item.day} 天</p>
                     <h3 class="font-semibold mt-1 ${isCompleted ? 'text-slate-300' : 'text-slate-100'}">${item.topic}</h3>
                 </div>
-                <button 
-                    data-day="${item.day}"
-                    data-type="${item.type}" 
-                    data-topic="${item.topic}"
-                    class="${baseButtonClasses} ${buttonClasses}">
-                    ${buttonContent}
-                </button>
+                <div class="mt-4 flex gap-2">
+                    <button 
+                        data-day="${item.day}"
+                        data-type="${item.type}" 
+                        data-topic="${item.topic}"
+                        class="${baseButtonClasses} ${buttonClasses}">
+                        ${buttonContent}
+                    </button>
+                    ${smartMemoBtn}
+                </div>
             `;
             planGrid.appendChild(card);
         });
     }
+    
+    // --- SMART MEMO FUNCTIONS (UPDATED) ---
+    async function generateSmartMemo(topic: string, promptTopic: string) {
+        memoModal.container.classList.remove('hidden');
+        memoModal.content.innerHTML = getLoaderHTML('AI 正在為您整理超詳細的重點清單...');
+        
+        // Detailed, Structured Prompt with Schema for robustness
+        const prompt = `你是一位專業的多益(TOEIC)老師。請針對主題「${topic}」(重點：${promptTopic})，為學生製作一張「條列式重點清單」(Structured Study Guide)。
+        
+        **要求：**
+        1. 內容要非常詳細，不要只寫關鍵字，請用完整的句子解釋。
+        2. 請使用繁體中文清楚說明，語氣親切易懂。
+        3. 確保「核心觀念」能讓學生秒懂。
+        4. 「常見陷阱」必須具體指出錯誤用法。
+        5. checkpoints 陣列中的內容請詳細列出至少 3 個重點。`;
+
+        try {
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            topic: { type: Type.STRING },
+                            concept: { type: Type.STRING },
+                            checkpoints: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        title: { type: Type.STRING },
+                                        detail: { type: Type.STRING }
+                                    },
+                                    required: ["title", "detail"]
+                                }
+                            },
+                            trap: { type: Type.STRING }
+                        },
+                        required: ["topic", "concept", "checkpoints", "trap"]
+                    }
+                }
+            });
+            
+            const memoData: SmartMemo = JSON.parse(response.text);
+            renderSmartMemo(memoData);
+        } catch (error) {
+            console.error("Failed to generate Smart Memo:", error);
+            memoModal.content.innerHTML = `<div class="text-center p-8"><p class="text-rose-500">抱歉，速記卡生成失敗。</p><p class="text-slate-400 mt-2">請稍後再試。</p></div>`;
+        }
+    }
+
+    function renderSmartMemo(data: SmartMemo) {
+        // Redesigned: Larger text, better readability
+        const html = `
+            <div class="space-y-6">
+                <!-- Concept Card -->
+                <div class="text-center pb-5 border-b border-slate-600">
+                    <p class="text-amber-400 text-xs font-extrabold uppercase tracking-widest mb-3">CORE CONCEPT</p>
+                    <p class="text-xl font-bold text-white leading-snug">${data.concept}</p>
+                </div>
+
+                <!-- Checkpoints List -->
+                <div>
+                     <p class="text-slate-400 text-xs font-extrabold uppercase tracking-widest mb-4 pl-1">CHECKPOINTS</p>
+                    <ul class="space-y-4">
+                        ${data.checkpoints.map((item, index) => `
+                            <li class="bg-slate-900 rounded-xl p-4 border border-slate-600 flex items-start gap-4">
+                                <div class="bg-amber-500 text-gray-900 font-bold rounded-full w-7 h-7 flex items-center justify-center flex-shrink-0 mt-0.5 text-sm">${index + 1}</div>
+                                <div>
+                                    <p class="text-emerald-300 font-bold text-base mb-2">${item.title}</p>
+                                    <p class="text-slate-300 text-base leading-relaxed">${item.detail}</p>
+                                </div>
+                            </li>
+                        `).join('')}
+                    </ul>
+                </div>
+
+                <!-- Mistake Warning -->
+                ${data.trap ? `
+                <div class="bg-rose-950/40 p-5 rounded-xl border border-rose-900/50">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="text-rose-500">${ICONS.cross.replace('h-6 w-6', 'h-5 w-5')}</span>
+                        <span class="text-rose-500 text-xs font-extrabold uppercase">COMMON TRAP</span>
+                    </div>
+                    <p class="text-slate-200 text-base font-medium pl-7 leading-relaxed">${data.trap}</p>
+                </div>
+                ` : ''}
+            </div>
+        `;
+        memoModal.content.innerHTML = html;
+    }
+
 
     function renderLearningContentFromJSON(data: LearningContent, container: HTMLElement) {
         let html = '';
@@ -613,6 +786,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 html += '</div>'; // close card
             });
         }
+        
+        // Comic Strip Section Container
+        html += `
+            <div id="comic-strip-section" class="mt-8 mb-8 bg-gray-900/80 p-6 rounded-lg border border-indigo-500/30">
+                <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
+                     <div>
+                        <h3 class="text-xl font-bold text-white flex items-center gap-2">🎨 AI 英語四格漫畫</h3>
+                        <p class="text-slate-400 text-sm mt-1">AI 全英語漫畫，沉浸式學習今日文法。(內容將永久保存)</p>
+                     </div>
+                     <button id="generate-comic-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-4 rounded-lg transition shadow-lg flex items-center gap-2 whitespace-nowrap">
+                        ${ICONS.comic} 查看/生成漫畫
+                     </button>
+                </div>
+                <div id="comic-display-area" class="hidden grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            </div>
+        `;
+
         if (data.summaryTip) {
             html += `
                 <div class="bg-sky-900/50 border-l-4 border-sky-600 text-sky-300 p-4 rounded-r-lg mt-8">
@@ -622,6 +812,164 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         }
         container.innerHTML = html;
+        
+        // Add event listener for comic button after HTML injection
+        const comicBtn = document.getElementById('generate-comic-btn');
+        if (comicBtn) {
+            comicBtn.addEventListener('click', () => handleGenerateComic(currentTopic));
+        }
+    }
+    
+    // --- COMIC STRIP GENERATION (UPDATED WITH ROOT OBJECT SCHEMA & ROBUSTNESS) ---
+    async function handleGenerateComic(topic: string) {
+        const displayArea = document.getElementById('comic-display-area');
+        const btn = document.getElementById('generate-comic-btn') as HTMLButtonElement;
+        
+        if (!displayArea || !btn) return;
+        
+        // CHECK CACHE FIRST
+        if (gameState.generatedComics[topic]) {
+            displayArea.classList.remove('hidden');
+            renderCachedComic(gameState.generatedComics[topic], displayArea);
+            btn.innerHTML = `${ICONS.check} 已載入漫畫`;
+            btn.disabled = true;
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = `<span class="audio-loader"></span> 繪製中...`;
+        displayArea.classList.remove('hidden');
+        displayArea.innerHTML = getLoaderHTML('AI 漫畫家正在構思全英語劇本...');
+        
+        try {
+            // 1. Generate Storyboard using Gemini Flash with ResponseSchema
+            const storyboardPrompt = `You are a creative English teacher and comic scriptwriter.
+            Create a 4-panel comic strip script to illustrate the grammar/topic: "${topic}".
+            
+            Requirements:
+            1. Ensure the 4 panels tell a continuous, coherent story with a clear beginning, middle, and end.
+            2. "caption" MUST be in English only. No Chinese.
+            3. "visual_description" must be a descriptive prompt for an image generator (e.g., "A cartoon style illustration of..."). Keep it simple and focused on the action.
+            `;
+            
+            // Using a random seed for variety
+            const seed = Math.floor(Math.random() * 1000000);
+
+            const textResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: storyboardPrompt,
+                config: { 
+                    responseMimeType: "application/json",
+                    // Wrap array in an object for better JSON mode stability
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            panels: {
+                                type: Type.ARRAY,
+                                items: {
+                                    type: Type.OBJECT,
+                                    properties: {
+                                        panel_number: { type: Type.INTEGER },
+                                        visual_description: { type: Type.STRING },
+                                        caption: { type: Type.STRING }
+                                    },
+                                    required: ["panel_number", "visual_description", "caption"]
+                                }
+                            }
+                        }
+                    },
+                    seed: seed
+                }
+            });
+            
+            const json = JSON.parse(textResponse.text);
+            const panels: ComicPanel[] = json.panels;
+            
+            if (!Array.isArray(panels) || panels.length === 0) {
+                throw new Error("Invalid comic script format returned by AI.");
+            }
+
+            // 2. Generate Images in Parallel
+            displayArea.innerHTML = `
+                <div class="col-span-1 md:col-span-2 text-center p-8">
+                    <p class="text-indigo-400 font-bold text-lg mb-4">腳本完成，正在繪製 4 張插圖...</p>
+                    <div class="grid grid-cols-2 gap-4 opacity-50">
+                         <div class="aspect-square bg-slate-800 rounded animate-pulse"></div>
+                         <div class="aspect-square bg-slate-800 rounded animate-pulse"></div>
+                         <div class="aspect-square bg-slate-800 rounded animate-pulse"></div>
+                         <div class="aspect-square bg-slate-800 rounded animate-pulse"></div>
+                    </div>
+                </div>
+            `;
+
+            const imagePromises = panels.map(async (panel, index) => {
+                try {
+                    // Add a tiny random delay to prevent hitting rate limits perfectly simultaneously
+                    await new Promise(r => setTimeout(r, index * 100 + Math.random() * 200));
+
+                    const imageResponse = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash-image', 
+                        contents: { parts: [{ text: panel.visual_description + ", american comic style, colorful, flat vector art, high quality, textless" }] },
+                        config: { responseModalities: [Modality.IMAGE] },
+                    });
+                    const imagePart = imageResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                    return {
+                        ...panel,
+                        imageBase64: imagePart ? imagePart.inlineData.data : null
+                    };
+                } catch (e) {
+                    console.error("Image gen failed for panel", panel.panel_number, e);
+                    // Return panel without image instead of failing completely
+                    return { ...panel, imageBase64: null };
+                }
+            });
+
+            const results = await Promise.all(imagePromises);
+            
+            // SAVE TO CACHE
+            gameState.generatedComics[topic] = results;
+            saveState();
+            
+            // 3. Render
+            renderCachedComic(results, displayArea);
+            btn.innerHTML = `${ICONS.check} 完成`;
+
+        } catch (error) {
+            console.error("Comic generation error:", error);
+            const errorMsg = error instanceof Error ? error.message : "Unknown error";
+            displayArea.innerHTML = `
+                <div class="col-span-1 md:col-span-2 p-4 bg-rose-900/30 border border-rose-700 rounded-lg text-center">
+                    <p class="text-rose-400 font-bold">漫畫生成遇到問題</p>
+                    <p class="text-slate-400 text-sm mt-1">AI 忙碌中或網路不穩，請稍後再試。</p>
+                    <p class="text-slate-500 text-xs mt-2">${errorMsg}</p>
+                </div>
+            `;
+            btn.disabled = false;
+            btn.innerHTML = `${ICONS.comic} 重試生成`;
+        }
+    }
+    
+    function renderCachedComic(panels: ComicPanel[], container: HTMLElement) {
+        let gridHtml = '';
+        panels.forEach(panel => {
+                gridHtml += `
+                <div class="comic-panel rounded-lg overflow-hidden flex flex-col relative group">
+                    <div class="aspect-square bg-slate-800 w-full relative">
+                            ${panel.imageBase64 
+                            ? `<img src="data:image/png;base64,${panel.imageBase64}" class="w-full h-full object-cover" alt="Panel ${panel.panel_number}">`
+                            : `<div class="flex items-center justify-center h-full text-slate-500 flex-col"><p>圖片生成失敗</p><p class="text-xs">(${panel.visual_description.substring(0, 20)}...)</p></div>`
+                            }
+                            <div class="absolute top-2 left-2 bg-black/70 text-white text-xs font-bold px-2 py-1 rounded-full border border-white/20">
+                            #${panel.panel_number}
+                            </div>
+                    </div>
+                    <div class="comic-caption-box p-4 flex-grow flex flex-col justify-center text-center border-t-2 border-black">
+                        <p class="text-lg font-bold leading-tight text-slate-900 font-sans">"${panel.caption}"</p>
+                    </div>
+                </div>
+                `;
+        });
+        container.innerHTML = gridHtml;
     }
 
 
@@ -631,6 +979,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!item) return;
 
         currentLearningDay = day;
+        currentTopic = item.topic; 
+
         document.getElementById('learning-title').textContent = item.topic;
         const contentDiv = document.getElementById('learning-content');
         
@@ -694,7 +1044,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 temperature: 0.2,
             }
         });
-        const learningData = JSON.parse(response.text);
+        const learningData = cleanAndParseJSON(response.text);
 
         if (learningData.keyPoints) {
             const vocabItems = learningData.keyPoints
@@ -757,7 +1107,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        let questions: Question[] = JSON.parse(response.text);
+        let questions: Question[] = cleanAndParseJSON(response.text);
 
         const imageGenerationPromises = questions
             .filter(q => q.imagePrompt)
@@ -787,6 +1137,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function startQuiz(topic, weeklyTopics, day) {
         currentQuiz = { name: topic, questions: [], type: 'weekly', topic: topic, weeklyTopics: weeklyTopics, day: day };
+        currentTopic = topic; // Update context
+        
         const quizForm = document.getElementById('quiz-form');
         const quizHeader = document.getElementById('quiz-header');
 
@@ -879,9 +1231,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const isPlanComplete = handleDayCompletion(quiz.day);
         
+        const total = quiz.questions.length;
+        
         // Only show feedback screen if the whole plan is not complete
         if (!isPlanComplete) {
-            showFeedback(score, quiz.questions.length, wrongQuestionsInfo, quiz.name, quiz.topic, quiz.weeklyTopics);
+            showFeedback(score, total, wrongQuestionsInfo, quiz.name, quiz.topic, quiz.weeklyTopics);
         }
     }
     
@@ -1039,7 +1393,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     responseMimeType: "application/json",
                 }
             });
-            const practiceQ = JSON.parse(response.text);
+            const practiceQ = cleanAndParseJSON(response.text);
 
             const optionsHTML = practiceQ.options.map((option) => `
                 <label class="practice-option-label flex items-center space-x-3 p-3 rounded-lg border border-slate-700 hover:bg-slate-700/50 hover:border-lime-400 transition cursor-pointer bg-gray-800/50">
@@ -1165,7 +1519,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 responseMimeType: "application/json",
             }
         });
-        const questions: Question[] = JSON.parse(response.text);
+        const questions: Question[] = cleanAndParseJSON(response.text);
         // Preload audio for listening questions
         questions.filter(q => q.type === 'listening').forEach(q => preloadAudio(q.id, q.audioText));
         return questions;
@@ -1175,6 +1529,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('mock-test-intro').classList.add('hidden');
         document.getElementById('mock-test-main').classList.remove('hidden');
         
+        currentTopic = "全真模擬測驗"; // Context
+
         const formEl = document.getElementById('mock-test-form');
         const submitBtn = document.getElementById('submit-mock-test-btn') as HTMLButtonElement;
 
@@ -1254,6 +1610,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function startFlashcardReview() {
         if (gameState.wrongAnswers.length === 0) return;
         
+        currentTopic = "錯題複習"; // Context
         shuffledWrongAnswers = [...gameState.wrongAnswers].sort(() => Math.random() - 0.5);
         currentFlashcardIndex = 0;
         
@@ -1503,6 +1860,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return;
             }
+            
+            // Smart Memo Button
+            const smartMemoBtn = target.closest('.smart-memo-btn');
+            if (smartMemoBtn) {
+                const { topic, prompt } = (smartMemoBtn as HTMLElement).dataset;
+                generateSmartMemo(topic, prompt);
+                return;
+            }
 
             // Back to Plan Buttons
             const backToPlanBtn = target.closest('.back-to-plan-btn');
@@ -1642,6 +2007,13 @@ document.addEventListener('DOMContentLoaded', () => {
         aiModal.container.addEventListener('click', (e) => {
             if (e.target === aiModal.container) {
                  aiModal.container.classList.add('hidden');
+            }
+        });
+        
+        memoModal.closeBtn.addEventListener('click', () => memoModal.container.classList.add('hidden'));
+        memoModal.container.addEventListener('click', (e) => {
+            if (e.target === memoModal.container) {
+                 memoModal.container.classList.add('hidden');
             }
         });
         
