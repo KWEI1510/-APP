@@ -1,0 +1,5 @@
+{
+  "name": "Boostify",
+  "description": "一個為台灣高中生設計的互動式多益(TOEIC)讀書計畫工具，幫助學生設定目標分數並提供客製化的學習計畫與測驗。",
+  "requestFramePermissions": []
+}
